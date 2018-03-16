@@ -38,7 +38,6 @@ class fbObj:
         msg = post.get('message', '')
 
         urls = _utils.get_urls(msg)
-        print(urls)
         for url in urls:
             print(url)
             msg = msg.replace(url, '')
