@@ -13,7 +13,7 @@ with open('ballers.txt', 'r') as f:
 dbname = "nbaSocial.db"
 conn = sqlite3.connect(dbname)
 cur = conn.cursor()
-cur.execute('select distinct page_name from fb_posts')
+cur.execute('select distinct page_name from fb_pages')
 skip = [c[0] for c in cur.fetchall()]
 print(skip)
 conn.close()
@@ -26,6 +26,7 @@ with open('creds/facebookCreds.json','r') as f:
 fb = fbObj(dbname, **creds)
 
 for blr in ballers:
+    print(blr)
     if blr in skip:
         continue
     # returns page with most posts (minimum 100)
@@ -37,7 +38,7 @@ for blr in ballers:
         print("Could not find page for", blr)
         continue
 
-    fb.load_posts(page_name, page_id, posts)
+    fb.load_posts(page_name, page_id, posts, blr)
 
 
 # had to look up some manually
@@ -46,5 +47,6 @@ manual_ids = [
 ]
 
 for page_name, page_id in manual_ids:
+    print(page_name)
     posts = fb.graph.get_all_connections(page_id, 'posts')
     fb.load_posts(page_name,page_id, posts)

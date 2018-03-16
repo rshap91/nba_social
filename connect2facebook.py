@@ -1,7 +1,10 @@
-import facebook
+import traceback
 import requests
 import sqlite3
 import psycopg2
+import facebook
+import _utils
+
 
 class fbObj:
 
@@ -35,7 +38,9 @@ class fbObj:
         msg = post.get('message', '')
 
         urls = _utils.get_urls(msg)
+        print(urls)
         for url in urls:
+            print(url)
             msg = msg.replace(url, '')
 
         emojis = _utils.get_emojis(msg)
@@ -158,21 +163,14 @@ class fbObj:
             return chosen_name, chosen_id, self.graph.get_all_connections(chosen_id, 'posts')
 
 
-    def load_posts(self,page_name, page_id, posts_generator):
+    def load_posts(self,page_name, page_id, posts_generator, player_name = None):
         """
         positional args are
             - page_name
             - page_id
             - posts_generator
         """
-        q = """
-        INSERT INTO fb_posts (
-            {}
-        )
-        VALUES (
-            {}
-        )
-        """ # we can simplify above
+        player_name = player_name or page_name
 
         cur = self.conn.cursor()
         post_num = 1
@@ -184,35 +182,82 @@ class fbObj:
                 parsed = fbObj.parse_post(post, page_name, page_id)
                 cols = list(parsed.keys())
                 vals = list(parsed.values())
+                # print(cols)
+                # print(vals)
 
-                for emoji in parse['emojis']:
-                    cur.execute('''
-                        INSERT OR IGNORE INTO emojis (emoji)
-                        VALUES (?);
-                    ''', (emoji,))
-                    cur.execute('''
-                        SELECT emoji_id FROM emojis
-                        WHERE emoji = %s;
-                    ''', (emoji,))
-                    emoji_id = cur.fetchone()
-                for htag in parse['hashtags']:
-                    cur.execute('''
-                        INSERT OR IGNORE INTO emojis (emoji)
-                        VALUES (?);
-                    ''', (emoji,))
-                    cur.execute('''
-                        SELECT emoji_id FROM emojis
-                        WHERE emoji = %s;
-                    ''', (emoji,))
-                    emoji_id = cur.fetchone()
-
-
-                cur.execute(
-                    q.format(cols, ','.join(['?']*len(cols))), #format column names and binds
-                    (*vals)
+                # insert post info into post dim table
+                cur.execute('''
+                    INSERT OR IGNORE INTO fb_posts (
+                        post_id,
+                        created_timestamp,
+                        message,
+                        story
+                    )
+                    VALUES (?,?,?,?);
+                ''',
+                (parsed['post_id'], parsed['created_timestamp'], parsed['message'], parsed['story'])  #binds
                 )
+                # insert page info into page table
+                cur.execute('''
+                    INSERT OR IGNORE INTO fb_pages (
+                        page_id,
+                        page_name,
+                        player_name
+                    )
+                    VALUES (?, ?, ?);
+                ''', (parsed['page_id'], parsed['page_name'], player_name)
+                )
+
+                for emoji in parsed['emojis']:
+                    # find if the emoji is already in the table...
+                    cur.execute('''
+                        SELECT emoji_id FROM emojis
+                        WHERE emoji = ?;
+                    ''', (emoji,))
+                    eid = cur.fetchone()
+                    # if it's not there, insert it
+                    if not eid:
+                        cur.execute('''
+                            INSERT INTO emojis (emoji)
+                            VALUES (?);
+                        ''', (emoji,))
+                        # and get the generated id
+                        cur.execute('''
+                            SELECT emoji_id FROM emojis
+                            WHERE emoji = ?;
+                        ''', (emoji,))
+                        eid = cur.fetchone()
+                    eid = eid[0] # it's a tuple
+                    # now do the same thing for each hash tag for each emoji...
+                    # something MUST be wrong with this design, but i don't know how else to do it other than a flat table with arrays
+                    for htag in parsed['hashtags']:
+                        cur.execute('''
+                            SELECT hashtag_id FROM hashtags
+                            WHERE hashtag = ?;
+                        ''', (htag,))
+                        hid = cur.fetchone()
+                        # if it's not there, insert it
+                        if not hid:
+                            cur.execute('''
+                                INSERT INTO hashtags (hashtag)
+                                VALUES (?);
+                            ''', (htag,))
+                            # and get the generated id
+                            cur.execute('''
+                                SELECT hashtag_id FROM hashtags
+                                WHERE hashtag = ?;
+                            ''', (htag,))
+                            hid = cur.fetchone()
+                        hid = hid[0] # it's a tuple
+                        # now insert ALL ids into the main data table
+                        cur.execute('''
+                            INSERT INTO fb_data (post_id, page_id, emoji_id, hashtag_id)
+                            VALUES (?, ?, ?, ?)
+                        ''',
+                        (parsed['post_id'], parsed['page_id'], eid, hid)
+                        )
                 post_num+=1
         except Exception as e:
-            print(str(e))
+            traceback.print_exc()
             return False
         return True

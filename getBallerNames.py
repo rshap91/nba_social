@@ -11,9 +11,10 @@ soup = BeautifulSoup(resp.text, 'lxml')
 # this gets first 50 out of 100 ballers
 # 51-100 only load when scroll to bottom of page
 # These could be gathered using selenium but for now 50 will do.
-names = soup.findAll('a', class_='listItem__title listItem__title--link black')
+names = soup.findAll('a', class_='listItem__title listItem__title--link black $tkl')
 names = [n.text for n in names]
 len(names)
+
 
 with open('ballers.txt', 'w') as f:
     f.write('\n'.join(names))
