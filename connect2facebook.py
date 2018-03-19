@@ -39,7 +39,6 @@ class fbObj:
 
         urls = _utils.get_urls(msg)
         for url in urls:
-            print(url)
             msg = msg.replace(url, '')
 
         emojis = _utils.get_emojis(msg)

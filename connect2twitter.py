@@ -3,32 +3,36 @@ import tweepy
 import requests
 import sqlite3
 import psycopg2
+import traceback
+import _utils
 
 class twitterObj:
 
     @staticmethod
-    def parse_post(post, username, usr_id):
+    def parse_tweet(tweet, username, usr_id):
         out_dic = {
-            'post_id' : post.id_str,
+            'tweet_id' : tweet.id_str,
             'username' : username,
-            'user_id' : usr_id
-            'date': post.created_at,
-            'retweet_count':post.retweet_count,
-            'favorite_count': post.favorite_count,
-            'possibly_sensitive': post.possibly_sensitive,
-            'hastags': [tag['text'] for tag in post.entities['hashtags']],
-            'user_mentions': [m['screen_name'] for m in post.entitites['user_mentions']],
-            'in_response_to': post.in_reply_to_screen_name
+            'user_id' : usr_id,
+            'date': tweet.created_at,
+            'retweet_count':tweet.retweet_count,
+            'favorite_count': tweet.favorite_count,
+            'possibly_sensitive': tweet.possibly_sensitive if hasattr(tweet, 'possibly_sensitive') else None,
+            'hastags': [tag['text'] for tag in tweet.entities['hashtags']],
+            'user_mentions': [m['screen_name'] for m in tweet.entities['user_mentions']],
+            'in_response_to': tweet.in_reply_to_screen_name
         }
 
-        text = p.text
-        out_dic['emojis'] : _utils.get_emojis(text) # NOT DEFINED!
-        if post.entities['symbols']:
+        text = tweet.text
+        out_dic['emojis'] = _utils.get_emojis(text)
+        if tweet.entities['symbols']:
             print('THIS POST HAS SYMBOLS!')
-            print(post.text)
-            print(post.entities['symbols'])
+            print(tweet.text)
+            print(tweet.entities['symbols'])
         # get rid of urls
-        urls = [u['url'] for u in post['urls']] + [u['url'] for u in posts['media']]
+        urls = [u.get('url',None) for u in tweet.entities.get('urls',{})] \
+                + [u.get('url',None) for u in tweet.entities.get('media', {})]
+        urls = [url for url in urls if url]
         for url in urls:
             text = text.replace(url, '')
         # text = _utils.remove_stop_words(text) # also not defined
@@ -45,16 +49,30 @@ class twitterObj:
             'Must pass either .db filename or dict with keys: host, port, dbname, user, password'
             self.dbinfo = DBINFO
         self.conn = None
-        self.client_id=client_id,
+        self.client_id=client_id
         self.client_secret=client_secret
         self.access_token=access_token
         self.secret_token=secret_token
         self.api = self._build_api(self.client_id, self.client_secret, self.access_token, self.secret_token)
-        self.load_posts = self.useQuery(self.load_posts)
+        self.load_tweets = self._useQuery(self.load_tweets)
+
+
+    def _useQuery(self, func):
+        # decorator that opens and closes conn for you
+        def inner(*args, **kwargs):
+            if isinstance(self.dbinfo, str):
+                self.conn = sqlite3.connect(self.dbinfo)
+            else:
+                self.conn = pyscopg2.connect(**self.dbinfo)
+            ret  = func(*args, **kwargs)
+            self.conn.commit()
+            self.conn.close()
+            return ret
+        return inner
 
 
     def _build_api(self, client_id, client_secret, access_token, secret_token):
-        auth = tweepy.OAuthHandler(consumer_key, consumer_secret)
+        auth = tweepy.OAuthHandler(client_id, client_secret)
         if not access_token:
             redirect_url = auth.get_authorization_url()
             print('Go the url below in a browser.')
@@ -71,48 +89,136 @@ class twitterObj:
 
 
     def get_user_data(self, username):
-        usr = api.get_user(username)
+        usr = self.api.get_user(username)
         pg = 1
-        posts = []
-        new_posts = usr.timeline(page=pg)
-        while new_posts:
-            posts.append([twitterObj.parse_post(p, username, usr.id_str) for p in new_posts])
+        tweets = []
+        new_tweets = usr.timeline(page=pg)
+        while new_tweets:
+            tweets.extend([twitterObj.parse_tweet(p, username, usr.id_str) for p in new_tweets])
             pg +=1
-            new_posts = usr.timeline(page=pg)
-        return posts
+            new_tweets = usr.timeline(page=pg)
+        return tweets
 
-    def load_posts(self,user_name, user_id, posts):
+
+    def load_tweets(self,player, username, tweets):
         """
         positional args are
-            - user_name
-            - user_id
-            - posts
+            - player_name
+            - username
+            - list of processed posts
         """
-        q = """
-        INSERT INTO twitter_posts (
-            {}
-        )
-        VALUES (
-            {}
-        )
-        """ # we can simplify above
-
         cur = self.conn.cursor()
-        post_num = 1
+        tweet_num = 1
         try:
-            for post in posts_generator:
-                if post_num % 100 == 0:
+            for tweet in tweets:
+                if tweet_num % 100 == 0:
                     print('Loading Post Number', post_num)
 
-                cols = list(post.keys())
-                vals = list(posts.values())
+                cols = list(tweet.keys())
+                vals = list(tweet.values())
+                # print(cols)
+                # print(vals)
 
-                cur.execute(
-                    q.format(cols, ','.join(['?']*len(cols))), #format column names and binds
-                    (*cols)
+                # insert post info into post dim table
+                cur.execute('''
+                    INSERT OR IGNORE INTO tweets (
+                        tweet_id,
+                        retweet_count,
+                        favorite_count,
+                        possibly_sensitive,
+                        in_response_to,
+                        status_text
+                    )
+                    VALUES (?,?,?,?,?,?);
+                ''',
+                (tweet['tweet_id'], tweet['retweet_count'], tweet['favorite_count'],
+                 tweet['possibly_sensitive'], tweet['in_response_to'], tweet['text'])  #binds
                 )
-                post_num+=1
+                # insert page info into page table
+                cur.execute('''
+                    INSERT OR IGNORE INTO twitter_users (
+                        user_id,
+                        user_name,
+                        player_name
+                    )
+                    VALUES (?, ?, ?);
+                ''', (tweet['user_id'], tweet['username'], player)
+                )
+
+                for emoji in tweet['emojis']:
+                    # find if the emoji is already in the table...
+                    cur.execute('''
+                        SELECT emoji_id FROM emojis
+                        WHERE emoji = ?;
+                    ''', (emoji,))
+                    eid = cur.fetchone()
+                    # if it's not there, insert it
+                    if not eid:
+                        cur.execute('''
+                            INSERT INTO emojis (emoji)
+                            VALUES (?);
+                        ''', (emoji,))
+                        # and get the generated id
+                        cur.execute('''
+                            SELECT emoji_id FROM emojis
+                            WHERE emoji = ?;
+                        ''', (emoji,))
+                        eid = cur.fetchone()
+                    eid = eid[0] # it's a tuple
+                    # now do the same thing for each hash tag for each emoji...
+                    # something MUST be wrong with this design, but i don't know how else to do it other than a flat table with arrays
+                    for htag in tweet['hashtags']:
+                        cur.execute('''
+                            SELECT hashtag_id FROM hashtags
+                            WHERE hashtag = ?;
+                        ''', (htag,))
+                        hid = cur.fetchone()
+                        # if it's not there, insert it
+                        if not hid:
+                            cur.execute('''
+                                INSERT INTO hashtags (hashtag)
+                                VALUES (?);
+                            ''', (htag,))
+                            # and get the generated id
+                            cur.execute('''
+                                SELECT hashtag_id FROM hashtags
+                                WHERE hashtag = ?;
+                            ''', (htag,))
+                            hid = cur.fetchone()
+                        hid = hid[0] # it's a tuple
+                        # last loop to get all user_mentions
+                        for mention in tweet['user_mentions']:
+                            cur.execute('''
+                                SELECT user_id FROM twitter_users
+                                WHERE user_name = ?;
+                            ''', (metnion,))
+                            uid = cur.fetchone()
+                            # if it's not there, insert it
+                            if not uid:
+                                uid = self.api.get_user(mention).id_str
+                                cur.execute('''
+                                    INSERT INTO twitter_users (user_id, username)
+                                    VALUES (?, ?);
+                                ''', (uid, mention))
+                            else:
+                                uid = uid[0] # it's a tuple
+                            # now insert ALL ids into the main data table
+                            cur.execute('''
+                                INSERT INTO twitter_data (
+                                    tweet_id,
+                                    user_id,
+                                    date,
+                                    hashtag_id,
+                                    user_mention,
+                                    emoji_id
+                                )
+                                VALUES (?, ?, ?, ?, ?, ?)
+                            ''',
+                            (tweet['tweet_id'], twet['user_id'], tweet['date'],
+                            hid, uid, eid)
+                            )
+                tweet_num+=1
         except Exception as e:
-            print(str(e))
+            traceback.print_exc()
             return False
         return True

@@ -14,9 +14,11 @@ For example, a url with an anchor tag would affect how I identify hashtags.
 def get_urls(text):
     # went with this guy minus the carat (^) for start of line
     # https://www.regextester.com/93652
-    url_re = re.compile('(http:\/\/www\.|https:\/\/www\.|http:\/\/|https:\/\/)?[a-z0-9]+([\-\.]{1}[a-z0-9]+)*\.[a-z]{2,5}(:[0-9]{1,5})?(\/.*)?$')
-
-    return re.findall(url_re, text)
+    url_re = re.compile('((http:\/\/www\.|https:\/\/www\.|http:\/\/|https:\/\/)?[a-z0-9]+([\-\.]{1}[a-z0-9]+)*\.[a-z]{2,5}(:[0-9]{1,5})?(\/.*)?)')
+    urls = re.findall(url_re, text)
+    if urls:
+        return [u[0] for u in urls]
+    return urls
 
 
 
