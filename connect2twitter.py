@@ -18,7 +18,7 @@ class twitterObj:
             'retweet_count':tweet.retweet_count,
             'favorite_count': tweet.favorite_count,
             'possibly_sensitive': tweet.possibly_sensitive if hasattr(tweet, 'possibly_sensitive') else None,
-            'hastags': [tag['text'] for tag in tweet.entities['hashtags']],
+            'hashtags': [tag['text'] for tag in tweet.entities['hashtags']],
             'user_mentions': [m['screen_name'] for m in tweet.entities['user_mentions']],
             'in_response_to': tweet.in_reply_to_screen_name
         }
@@ -112,7 +112,7 @@ class twitterObj:
         try:
             for tweet in tweets:
                 if tweet_num % 100 == 0:
-                    print('Loading Post Number', post_num)
+                    print('Loading Post Number', tweet_num)
 
                 cols = list(tweet.keys())
                 vals = list(tweet.values())
@@ -191,13 +191,13 @@ class twitterObj:
                             cur.execute('''
                                 SELECT user_id FROM twitter_users
                                 WHERE user_name = ?;
-                            ''', (metnion,))
+                            ''', (mention,))
                             uid = cur.fetchone()
                             # if it's not there, insert it
                             if not uid:
                                 uid = self.api.get_user(mention).id_str
                                 cur.execute('''
-                                    INSERT INTO twitter_users (user_id, username)
+                                    INSERT INTO twitter_users (user_id, user_name)
                                     VALUES (?, ?);
                                 ''', (uid, mention))
                             else:
@@ -214,7 +214,7 @@ class twitterObj:
                                 )
                                 VALUES (?, ?, ?, ?, ?, ?)
                             ''',
-                            (tweet['tweet_id'], twet['user_id'], tweet['date'],
+                            (tweet['tweet_id'], tweet['user_id'], tweet['date'],
                             hid, uid, eid)
                             )
                 tweet_num+=1
