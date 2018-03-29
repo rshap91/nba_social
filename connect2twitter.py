@@ -1,4 +1,5 @@
 # connect2twitter
+import time
 import tweepy
 import requests
 import sqlite3
@@ -76,14 +77,16 @@ class twitterObj:
         if not access_token:
             redirect_url = auth.get_authorization_url()
             print('Go the url below in a browser.')
-            print('If you are already logged in to facebook you will be redirected, otherwise log in to give permissions.')
+            print('If you are already logged in to Twitter you will be redirected, otherwise log in to give permissions.')
             print('Once you are redirected, copy the new url and paste below.')
             print()
             print(redirect_url)
             print()
             url = input('Paste URL Here: ')
-            verifier = url[url.find('&oauth_verifier=') + len('&oauth_verifier='):]
+            oauth_verifier = url[url.find('&oauth_verifier=') + len('&oauth_verifier='):]
             access_token, secret_token = auth.get_access_token(oauth_verifier)
+            self.access_token = access_token
+            self.secret_token = secret_token
         auth.set_access_token(access_token, secret_token)
         return tweepy.API(auth)
 
@@ -195,7 +198,12 @@ class twitterObj:
                             uid = cur.fetchone()
                             # if it's not there, insert it
                             if not uid:
-                                uid = self.api.get_user(mention).id_str
+                                time.sleep(0.1)
+                                try:
+                                    uid = self.api.get_user(mention).id_str
+                                except tweepy.error.TweepError:
+                                    print('Error loading user', mention)
+                                    continue
                                 cur.execute('''
                                     INSERT INTO twitter_users (user_id, user_name)
                                     VALUES (?, ?);
