@@ -139,7 +139,7 @@ class twitterObj:
                 )
                 # insert page info into page table
                 cur.execute('''
-                    INSERT OR IGNORE INTO twitter_users (
+                    INSERT OR REPLACE INTO twitter_users (
                         user_id,
                         user_name,
                         player_name
