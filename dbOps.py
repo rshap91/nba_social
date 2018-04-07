@@ -3,60 +3,40 @@ import sqlite3
 
 def make_fb_table(conn):
     q = """
-    CREATE TABLE fb_data (
+    CREATE TABLE fb_posts (
     post_id VARCHAR(32),
     page_id VARCHAR(32),
-    emoji_id INTEGER,
-    hashtag_id INTEGER,
-    FOREIGN KEY (post_id) REFERENCES fb_posts (post_id),
-    FOREIGN KEY (page_id) REFERENCES fb_pages (page_id),
-    FOREIGN KEY (emoji_id) REFERENCES emojis (emoji_id),
-    FOREIGN KEY (hashtag_id) REFERENCES hashtags (hashtag_id)
-    )
-    """
-    cur = conn.cursor()
-    cur.execute(q)
-    cur.close()
-
-
-def make_twitter_table(conn):
-    q = """
-    CREATE TABLE twitter_data (
-        tweet_id VARCHAR (32),
-        user_id VARCHAR(32),
-        date DATE,
-        hashtag_id INTEGER,
-        user_mention VARCHAR(32),
-        emoji_id INTEGER,
-        FOREIGN KEY (tweet_id) REFERENCES tweets (tweet_id),
-        FOREIGN KEY (user_id) REFERENCES twitter_users (user_id),
-        FOREIGN KEY (hashtag_id) REFERENCES hashtags (hashtag_id),
-        FOREIGN KEY (user_id) REFERENCES twitter_users (user_id),
-        FOREIGN KEY (emoji_id) REFERENCES emojis (emoji_id)
+    created_timestamp TIMESTAMP,
+    message TEXT,
+    story TEXT,
+    FOREIGN KEY(page_id) REFERENCES fb_pages(page_id)
     );
     """
     cur = conn.cursor()
     cur.execute(q)
     cur.close()
 
-
-def make_dim_tables(conn):
-    q = '''
+def make_twitter_table(conn):
+    q = """
     CREATE TABLE tweets (
         tweet_id VARCHAR(32) PRIMARY KEY NOT NULL,
+        user_id VARCHAR(32),
+        date DATE,
         retweet_count INTEGER,
         favorite_count INTEGER,
         possibly_sensitive BOOLEAN,
         in_response_to VARCHAR(256),
-        status_text TEXT
+        status_text TEXT,
+        FOREIGN KEY (user_id) REFERENCES twitter_users (user_id)
     );
 
-    CREATE TABLE fb_posts (
-        post_id VARCHAR(32) PRIMARY KEY NOT NULL,
-        created_timestamp TIMESTAMP,
-        message TEXT,
-        story TEXT
-    );
+    """
+    cur = conn.cursor()
+    cur.execute(q)
+    cur.close()
+
+def make_dim_tables(conn):
+    q = '''
 
     CREATE TABLE fb_pages (
         page_id VARCHAR(32) PRIMARY KEY NOT NULL,
@@ -80,6 +60,50 @@ def make_dim_tables(conn):
         emoji VARCHAR(64)
     );
 
+    CREATE TABLE fbpost_hashtags (
+        hashtag_id INTEGER NOT NULL,
+        post_id VARCHAR(32) NOT NULL,
+        htag_count INTEGER,
+        PRIMARY KEY (hashtag_id, post_id),
+        FOREIGN KEY(hashtag_id) REFERENCES hashtags(hashtag_id),
+        FOREIGN KEY(post_id) REFERENCES fb_posts(post_id)
+    );
+
+    CREATE TABLE fbpost_emojis (
+        emoji_id INTEGER NOT NULL,
+        post_id VARCHAR(32) NOT NULL,
+        emoji_count INTEGER,
+        PRIMARY KEY (emoji_id, post_id),
+        FOREIGN KEY(emoji_id) REFERENCES emojis(emoji_id),
+        FOREIGN KEY(post_id) REFERENCES fb_posts(post_id)
+    );
+
+    CREATE TABLE tweet_hashtags (
+        hashtag_id INTEGER NOT NULL,
+        tweet_id VARCHAR(32) NOT NULL,
+        htag_count INTEGER,
+        PRIMARY KEY (hashtag_id, tweet_id),
+        FOREIGN KEY(hashtag_id) REFERENCES hashtags(hashtag_id),
+        FOREIGN KEY(tweet_id) REFERENCES tweets(tweet_id)
+    );
+
+    CREATE TABLE tweet_emojis (
+        emoji_id INTEGER NOT NULL,
+        tweet_id VARCHAR(32) NOT NULL,
+        emoji_count INTEGER,
+        PRIMARY KEY (emoji_id, tweet_id),
+        FOREIGN KEY(emoji_id) REFERENCES emojis(emoji_id),
+        FOREIGN KEY(tweet_id) REFERENCES tweets(tweet_id)
+    );
+
+    CREATE TABLE tweet_usr_mentions (
+        usr_mention_id VARCHAR(32) NOT NULL,
+        tweet_id VARCHAR(32) NOT NULL,
+        usr_mention_count INTEGER,
+        PRIMARY KEY (usr_mention_id, tweet_id),
+        FOREIGN KEY(usr_mention_id) REFERENCES twitter_users(user_id),
+        FOREIGN KEY(tweet_id) REFERENCES tweets(tweet_id)
+    );
 
     '''
     cur = conn.cursor()

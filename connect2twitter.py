@@ -126,15 +126,18 @@ class twitterObj:
                 cur.execute('''
                     INSERT OR IGNORE INTO tweets (
                         tweet_id,
+                        user_id,
+                        date,
                         retweet_count,
                         favorite_count,
                         possibly_sensitive,
                         in_response_to,
                         status_text
                     )
-                    VALUES (?,?,?,?,?,?);
+                    VALUES (?,?,?,?,?,?,?,?);
                 ''',
-                (tweet['tweet_id'], tweet['retweet_count'], tweet['favorite_count'],
+                (tweet['tweet_id'], tweet['user_id'], tweet['date'],
+                 tweet['retweet_count'], tweet['favorite_count'],
                  tweet['possibly_sensitive'], tweet['in_response_to'], tweet['text'])  #binds
                 )
                 # insert page info into page table
@@ -168,63 +171,90 @@ class twitterObj:
                         ''', (emoji,))
                         eid = cur.fetchone()
                     eid = eid[0] # it's a tuple
-                    # now do the same thing for each hash tag for each emoji...
-                    # something MUST be wrong with this design, but i don't know how else to do it other than a flat table with arrays
-                    for htag in tweet['hashtags']:
+                    # insert or increment
+                    cur.execute("""
+                        INSERT OR REPLACE INTO tweet_emojis
+                            (tweet_id, emoji_id, emoji_count)
+                        VALUES (
+                            ?, ?, COALESCE (
+                                (SELECT emoji_count FROM tweet_emojis
+                                WHERE tweet_id = ?
+                                AND emoji_id = ?),
+                                0
+                            ) + 1
+                        )
+                    """, (tweet['tweet_id'], eid, tweet['tweet_id'], eid))
+
+
+
+                # same thign for hashtags
+                for htag in tweet['hashtags']:
+                    cur.execute('''
+                        SELECT hashtag_id FROM hashtags
+                        WHERE hashtag = ?;
+                    ''', (htag,))
+                    hid = cur.fetchone()
+                    # if it's not there, insert it
+                    if not hid:
+                        cur.execute('''
+                            INSERT INTO hashtags (hashtag)
+                            VALUES (?);
+                        ''', (htag,))
+                        # and get the generated id
                         cur.execute('''
                             SELECT hashtag_id FROM hashtags
                             WHERE hashtag = ?;
                         ''', (htag,))
                         hid = cur.fetchone()
-                        # if it's not there, insert it
-                        if not hid:
-                            cur.execute('''
-                                INSERT INTO hashtags (hashtag)
-                                VALUES (?);
-                            ''', (htag,))
-                            # and get the generated id
-                            cur.execute('''
-                                SELECT hashtag_id FROM hashtags
-                                WHERE hashtag = ?;
-                            ''', (htag,))
-                            hid = cur.fetchone()
-                        hid = hid[0] # it's a tuple
-                        # last loop to get all user_mentions
-                        for mention in tweet['user_mentions']:
-                            cur.execute('''
-                                SELECT user_id FROM twitter_users
-                                WHERE user_name = ?;
-                            ''', (mention,))
-                            uid = cur.fetchone()
-                            # if it's not there, insert it
-                            if not uid:
-                                time.sleep(0.1)
-                                try:
-                                    uid = self.api.get_user(mention).id_str
-                                except tweepy.error.TweepError:
-                                    print('Error loading user', mention)
-                                    continue
-                                cur.execute('''
-                                    INSERT INTO twitter_users (user_id, user_name)
-                                    VALUES (?, ?);
-                                ''', (uid, mention))
-                            else:
-                                uid = uid[0] # it's a tuple
-                            # now insert ALL ids into the main data table
-                            cur.execute('''
-                                INSERT INTO twitter_data (
-                                    tweet_id,
-                                    user_id,
-                                    date,
-                                    hashtag_id,
-                                    user_mention,
-                                    emoji_id
-                                )
-                                VALUES (?, ?, ?, ?, ?, ?)
-                            ''',
-                            (tweet['tweet_id'], tweet['user_id'], tweet['date'],
-                            hid, uid, eid)
-                            )
+                    hid = hid[0] # it's a tuple
+                    cur.execute("""
+                        INSERT OR REPLACE INTO tweet_hashtags
+                            (tweet_id, hashtag_id, htag_count)
+                        VALUES (
+                            ?, ?, COALESCE (
+                                (SELECT htag_count FROM tweet_hashtags
+                                WHERE tweet_id = ?
+                                AND hashtag_id = ?),
+                                0
+                            ) + 1
+                        )
+                    """, (tweet['tweet_id'], hid, tweet['tweet_id'], hid))
+
+
+                # same thing user_mentions
+                for mention in tweet['user_mentions']:
+                    cur.execute('''
+                        SELECT user_id FROM twitter_users
+                        WHERE user_name = ?;
+                    ''', (mention,))
+                    uid = cur.fetchone()
+                    # if it's not there, insert it
+                    if not uid:
+                        time.sleep(0.1)
+                        try:
+                            uid = self.api.get_user(mention).id_str
+                        except tweepy.error.TweepError:
+                            print('Error loading user', mention)
+                            continue
+                        cur.execute('''
+                            INSERT INTO twitter_users (user_id, user_name)
+                            VALUES (?, ?);
+                        ''', (uid, mention))
+                    else:
+                        uid = uid[0] # it's a tuple
+                    cur.execute("""
+                        INSERT OR REPLACE INTO tweet_usr_mentions
+                            (tweet_id, usr_mention_id, usr_mention_count)
+                        VALUES (
+                            ?, ?, COALESCE (
+                                (SELECT usr_mention_count FROM tweet_usr_mentions
+                                WHERE tweet_id = ?
+                                AND usr_mention_id = ?),
+                                0
+                            ) + 1
+                        )
+                    """, (tweet['tweet_id'], uid, tweet['tweet_id'], uid))
+
                 tweet_num+=1
         except Exception as e:
             traceback.print_exc()

@@ -186,14 +186,15 @@ class fbObj:
                 # insert post info into post dim table
                 cur.execute('''
                     INSERT OR IGNORE INTO fb_posts (
-                        post_id,
-                        created_timestamp,
-                        message,
+                        post_id
+                        page_id
+                        created_timestamp
+                        message
                         story
                     )
-                    VALUES (?,?,?,?);
+                    VALUES (?,?,?,?,?);
                 ''',
-                (parsed['post_id'], parsed['created_timestamp'], parsed['message'], parsed['story'])  #binds
+                (parsed['post_id'], page_id, parsed['created_timestamp'], parsed['message'], parsed['story'])  #binds
                 )
                 # insert page info into page table
                 cur.execute('''
@@ -226,34 +227,55 @@ class fbObj:
                         ''', (emoji,))
                         eid = cur.fetchone()
                     eid = eid[0] # it's a tuple
-                    # now do the same thing for each hash tag for each emoji...
-                    # something MUST be wrong with this design, but i don't know how else to do it other than a flat table with arrays
-                    for htag in parsed['hashtags']:
+
+                    # add the post-emoji pair to the many-many connection table
+                    cur.execute("""
+                        INSERT OR REPLACE INTO fbpost_emojis
+                            (post_id, emoji_id, emoji_count)
+                        VALUES (
+                            ?, ?, COALESCE (
+                                (SELECT emoji_count FROM fbpost_emojis
+                                WHERE post_id = ?
+                                AND emoji_id = ?),
+                                0
+                            ) + 1
+                        )
+                    """, (parse['post_id'], eid, parsed['post_id'], eid))
+
+                # same thign for hashtags
+                for htag in parsed['hashtags']:
+                    cur.execute('''
+                        SELECT hashtag_id FROM hashtags
+                        WHERE hashtag = ?;
+                    ''', (htag,))
+                    hid = cur.fetchone()
+                    # if it's not there, insert it
+                    if not hid:
+                        cur.execute('''
+                            INSERT INTO hashtags (hashtag)
+                            VALUES (?);
+                        ''', (htag,))
+                        # and get the generated id
                         cur.execute('''
                             SELECT hashtag_id FROM hashtags
                             WHERE hashtag = ?;
                         ''', (htag,))
                         hid = cur.fetchone()
-                        # if it's not there, insert it
-                        if not hid:
-                            cur.execute('''
-                                INSERT INTO hashtags (hashtag)
-                                VALUES (?);
-                            ''', (htag,))
-                            # and get the generated id
-                            cur.execute('''
-                                SELECT hashtag_id FROM hashtags
-                                WHERE hashtag = ?;
-                            ''', (htag,))
-                            hid = cur.fetchone()
-                        hid = hid[0] # it's a tuple
-                        # now insert ALL ids into the main data table
-                        cur.execute('''
-                            INSERT INTO fb_data (post_id, page_id, emoji_id, hashtag_id)
-                            VALUES (?, ?, ?, ?)
-                        ''',
-                        (parsed['post_id'], parsed['page_id'], eid, hid)
+                    hid = hid[0] # it's a tuple
+
+                    cur.execute("""
+                        INSERT OR REPLACE INTO fbpost_hashtags
+                            (post_id, hashtag_id, htag_count)
+                        VALUES (
+                            ?, ?, COALESCE (
+                                (SELECT htag_count FROM fbpost_hashtags
+                                WHERE post_id = ?
+                                AND hashtag_id = ?),
+                                0
+                            ) + 1
                         )
+                    """, (parse['post_id'], hid, parsed['post_id'], hid))
+
                 post_num+=1
         except Exception as e:
             traceback.print_exc()
